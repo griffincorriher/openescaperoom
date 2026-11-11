@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, PngImagePlugin
+import yaml
 
 from app.config import (
     AppConfig,
@@ -68,6 +70,27 @@ def png_with_metadata() -> bytes:
     return output.getvalue()
 
 
+def hotspot_archive(regions: list[dict[str, int]]) -> bytes:
+    data = yaml.safe_load((ROOM_DIR / "room.yaml").read_text(encoding="utf-8"))
+    data["meta"]["id"] = "community-room"
+    puzzle = data["puzzles"][0]
+    puzzle["type"] = "image_hotspot"
+    puzzle.pop("answers")
+    puzzle["image"] = "assets/hotspot.png"
+    puzzle["regions"] = regions
+    image = io.BytesIO()
+    Image.new("RGB", (800, 600), "green").save(image, format="PNG")
+
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "community-room/room.yaml",
+            yaml.safe_dump(data, sort_keys=False),
+        )
+        archive.writestr("community-room/assets/hotspot.png", image.getvalue())
+    return output.getvalue()
+
+
 def test_upload_sanitizes_image_and_keeps_markdown_as_text():
     archive = room_archive(
         extra_files={
@@ -76,11 +99,13 @@ def test_upload_sanitizes_image_and_keeps_markdown_as_text():
         }
     )
 
-    room, assets, guide = sanitize_room_zip(
+    room, assets, guide, warnings, hotspots = sanitize_room_zip(
         archive, make_uploads_config().uploads
     )
 
     assert room["meta"]["id"] == "community-room"
+    assert warnings == []
+    assert hotspots == []
     image_bytes, image_type = assets["assets/cover.png"]
     with Image.open(io.BytesIO(image_bytes)) as image:
         assert image.format == "PNG"
@@ -88,6 +113,87 @@ def test_upload_sanitizes_image_and_keeps_markdown_as_text():
     assert image_type == "image/png"
     assert guide == "<script>not html</script>"
     assert assets["HOST_GUIDE.md"][1] == "text/plain; charset=utf-8"
+
+
+def test_upload_validation_returns_hotspot_editor_preview_for_missing_regions():
+    archive = hotspot_archive([])
+    with TestClient(create_app(make_uploads_config())) as client:
+        response = client.post(
+            "/api/uploads",
+            files={"archive": ("community-room.zip", archive, "application/zip")},
+        )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any("puzzles[0].regions must contain at least one region" in error for error in detail["errors"])
+    hotspot = detail["hotspots"][0]
+    assert hotspot["id"] == "compass"
+    assert hotspot["image"] == "assets/hotspot.png"
+    assert hotspot["image_data_url"].startswith("data:image/png;base64,")
+    assert hotspot["regions"] == []
+
+
+def test_upload_returns_hotspot_warnings_and_preview_for_valid_regions():
+    archive = hotspot_archive([{"x": 20, "y": 30, "w": 1, "h": 1}])
+    with TestClient(create_app(make_uploads_config())) as client:
+        response = client.post(
+            "/api/uploads",
+            files={"archive": ("community-room.zip", archive, "application/zip")},
+        )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert any("regions[0] is very small" in item for item in result["warnings"])
+    assert result["hotspots"][0]["regions"] == [
+        {"x": 20.0, "y": 30.0, "w": 1.0, "h": 1.0}
+    ]
+    assert result["hotspots"][0]["image_data_url"].startswith("data:image/png;base64,")
+
+
+def test_upload_applies_editor_regions_before_validating_and_storing_room():
+    archive = hotspot_archive([])
+    edits = {
+        "compass": {
+            "regions": [{"x": 20, "y": 30, "w": 15, "h": 12}],
+            "tolerance": 1,
+        }
+    }
+    application = create_app(make_uploads_config())
+    with TestClient(application) as client:
+        response = client.post(
+            "/api/uploads",
+            files={"archive": ("community-room.zip", archive, "application/zip")},
+            data={"hotspot_regions": json.dumps(edits)},
+        )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["hotspots"][0]["regions"] == [
+        {"x": 20.0, "y": 30.0, "w": 15.0, "h": 12.0}
+    ]
+    assert result["hotspots"][0]["tolerance"] == 1
+    stored_yaml = application.state.rooms.uploaded_rooms["community-room"].assets[
+        "room.yaml"
+    ][0]
+    stored_room = yaml.safe_load(stored_yaml)
+    assert stored_room["puzzles"][0]["regions"] == edits["compass"]["regions"]
+    assert stored_room["puzzles"][0]["tolerance"] == 1
+
+
+def test_upload_rejects_editor_regions_for_unknown_puzzle():
+    with TestClient(create_app(make_uploads_config())) as client:
+        response = client.post(
+            "/api/uploads",
+            files={"archive": ("community-room.zip", hotspot_archive([]), "application/zip")},
+            data={
+                "hotspot_regions": json.dumps(
+                    {"missing": {"regions": [{"x": 1, "y": 1, "w": 5, "h": 5}]}}
+                )
+            },
+        )
+
+    assert response.status_code == 422
+    assert "unknown puzzle: missing" in response.json()["detail"]["errors"][0]
 
 
 @pytest.mark.parametrize(

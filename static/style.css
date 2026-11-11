@@ -133,6 +133,58 @@ select:disabled {
   gap: 0.5rem;
 }
 
+.matching-list,
+.pick-all-option {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.matching-list {
+  padding-inline-start: 1.5rem;
+}
+
+.matching-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.75rem;
+  margin-block: 0.75rem;
+}
+
+.matching-row label {
+  overflow-wrap: anywhere;
+}
+
+.matching-row select {
+  min-width: 0;
+}
+
+.pick-all-option {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  margin-block: 0.6rem;
+}
+
+.pick-all-option input[type="checkbox"] {
+  width: 1.15rem;
+  min-height: 1.15rem;
+  margin: 0;
+}
+
+#puzzle-module-root fieldset {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: 1px solid #d4e0ce;
+  border-radius: 0.75rem;
+}
+
+#puzzle-module-root legend {
+  padding-inline: 0.35rem;
+  font-weight: 650;
+}
+
 .hotspot-image-button {
   display: block;
   margin-block: 0.75rem;
@@ -238,6 +290,11 @@ select:disabled {
 @media (max-width: 40rem) {
   body {
     padding: 1rem;
+  }
+
+  .matching-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
   }
 
   .lobby-columns {
@@ -800,14 +857,33 @@ html[data-theme="dark"] select {
 }
 
 .join-code-pin {
-  display: flex;
+  display: grid;
+  width: 100%;
+  max-width: 18.75rem;
+  min-width: 0;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
-.join-code-digit {
-  width: 3.25rem;
+.join-card,
+#join-game-form,
+#join-game-form > div {
   min-width: 0;
-  min-height: 3.25rem;
+}
+
+#join-game-form > button {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+.join-code-digit {
+  width: 100%;
+  max-width: 3.25rem;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  aspect-ratio: 1;
   margin: 0;
   padding: 0.4rem;
   font-size: 1.3rem;
@@ -816,14 +892,34 @@ html[data-theme="dark"] select {
   text-transform: uppercase;
 }
 
+.lock-code-form {
+  display: grid;
+  justify-items: start;
+  gap: 0.65rem;
+  max-width: 100%;
+}
+
+.lock-code-inputs {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.lock-code-input {
+  width: 2.9rem;
+  min-width: 2.9rem;
+  min-height: 2.9rem;
+  margin: 0;
+  padding: 0.35rem;
+  font-size: 1.15rem;
+  font-weight: 750;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 @media (max-width: 24rem) {
   .join-code-pin {
     gap: 0.35rem;
-  }
-
-  .join-code-digit {
-    width: 2.8rem;
-    min-height: 2.8rem;
   }
 }
 
@@ -1914,6 +2010,229 @@ html[data-theme="dark"] .button-dark {
 
 .room-upload-file-input {
   display: none;
+}
+
+.hotspot-validation {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.hotspot-editor-heading,
+.hotspot-editor-title {
+  margin: 0;
+}
+
+.hotspot-editor-description,
+.hotspot-editor-prompt,
+.hotspot-editor-instruction,
+.hotspot-editor-status {
+  margin: 0;
+}
+
+.hotspot-editor-panel {
+  display: grid;
+  min-width: 0;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid #d4e0ce;
+  border-radius: 0.8rem;
+  background: #fffdf8;
+}
+
+.hotspot-editor-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.55rem;
+}
+
+.hotspot-tolerance-label {
+  display: grid;
+  width: 7rem;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.hotspot-tolerance-label input {
+  width: 100%;
+  min-height: 2.45rem;
+  margin: 0;
+}
+
+.hotspot-editor-surface {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  line-height: 0;
+}
+
+.hotspot-editor-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.hotspot-editor-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.hotspot-region,
+.hotspot-region-padding {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.hotspot-region {
+  display: grid;
+  place-items: start;
+  min-width: 1px;
+  min-height: 1px;
+  border: 2px solid #2f9d70;
+  background: rgb(47 157 112 / 18%);
+  color: #fff;
+  font-size: clamp(0.65rem, 2vw, 1rem);
+  font-weight: 750;
+  line-height: 1;
+  cursor: move;
+  touch-action: none;
+}
+
+.hotspot-region.has-error {
+  border-color: #cf4a4a;
+  background: rgb(207 74 74 / 22%);
+}
+
+.hotspot-region.has-warning {
+  border-color: #d38624;
+  background: rgb(211 134 36 / 20%);
+}
+
+.hotspot-region.is-selected {
+  z-index: 2;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #335bcc;
+}
+
+.hotspot-region-padding {
+  z-index: 1;
+  border: 2px dashed #7d58bc;
+  background: rgb(125 88 188 / 8%);
+  pointer-events: none;
+}
+
+.hotspot-region-handle {
+  position: absolute;
+  z-index: 3;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #335bcc;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.hotspot-region-handle.is-nw {
+  top: -0.4rem;
+  left: -0.4rem;
+  cursor: nwse-resize;
+}
+
+.hotspot-region-handle.is-ne {
+  top: -0.4rem;
+  right: -0.4rem;
+  cursor: nesw-resize;
+}
+
+.hotspot-region-handle.is-sw {
+  bottom: -0.4rem;
+  left: -0.4rem;
+  cursor: nesw-resize;
+}
+
+.hotspot-region-handle.is-se {
+  right: -0.4rem;
+  bottom: -0.4rem;
+  cursor: nwse-resize;
+}
+
+.hotspot-test-marker {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: white;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: hotspot-marker-fade 2s ease-out forwards;
+}
+
+.hotspot-test-marker.is-correct {
+  background: #16835d;
+}
+
+.hotspot-test-marker.is-miss {
+  background: #c83e49;
+}
+
+.hotspot-editor-diagnostics ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
+.hotspot-message-error {
+  color: #b4232d;
+}
+
+.hotspot-message-warning {
+  color: #95600e;
+}
+
+.hotspot-message-success {
+  margin: 0;
+  color: #19704f;
+}
+
+@keyframes hotspot-marker-fade {
+  0%, 75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+html[data-theme="dark"] .hotspot-editor-panel {
+  border-color: #465946;
+  background: #202821;
+}
+
+html[data-theme="dark"] .hotspot-message-error {
+  color: #ff9a9a;
+}
+
+html[data-theme="dark"] .hotspot-message-warning {
+  color: #f0c16f;
+}
+
+html[data-theme="dark"] .hotspot-message-success {
+  color: #74d4a9;
 }
 
 .room-upload-dropzone-icon {

@@ -34,11 +34,13 @@ Bundled rooms are loaded from `rooms/<room-id>/room.yaml` at startup. Invalid
 rooms are skipped and reported in the server log. The room format and
 validation rules are documented in [docs/ROOM_AUTHORING.md](docs/ROOM_AUTHORING.md).
 
-To test **The First Light**, create a team and start the game. Open the four
-available puzzles; the split clue is different for each teammate. Use the
-puzzle controls to submit answers, try hints, and order the moon phases. The
-final answer is `east green full moon star`. The timer, team progress, and
-results appear in the game view.
+To test **The First Light**, create a team and start the game. Open the six
+available puzzles; the split clue is different for each teammate. The room
+also demonstrates matching instruments to observations and selecting all
+required beacon components. Use the puzzle controls to submit answers, try
+hints, and order the moon phases. The final answer is
+`east green full moon star signal light`. The timer, team progress, and results
+appear in the game view.
 
 Use **Playtest solo** beside **Create game** to start a private, one-player
 session with answers shown on the puzzle map; playtests have no join code or
@@ -47,11 +49,39 @@ add time, skip a puzzle for one team, message teams, remove a player, or end
 early. Players see their team's activity feed and a paused overlay when
 appropriate. Dark mode and sound preferences are stored in the browser.
 
+## Puzzle types
+
+Rooms can combine these puzzle types. Answers are always checked on the server;
+the browser receives the clues and controls but not the correct answers.
+
+| Type | How it plays | Type-specific `room.yaml` fields |
+| --- | --- | --- |
+| `text` | Enter a word or phrase. Matching ignores case, spaces, and punctuation. | `answers`: accepted spellings |
+| `multiple_choice` | Choose one correct option from a list. | `options` (3–5 strings), `answer` (one option) |
+| `pick_all` | Check every correct option and no incorrect ones. The full selected set must be right. | `options` (3–10 unique strings), `answer` (list of correct options) |
+| `lock` | Enter a fixed-length code in one box per character. The boxes accept digits, letters, or compass directions, and support pasting a full code. | `format` (`digits`, `letters`, or `directions`), `length`, `answer` |
+| `split_clue` | Each teammate privately receives a different fragment; they must share information to solve it. | `fragments` (list), `answer` |
+| `cipher` | Read the encoded text generated from the room's plaintext, then enter its solution. Supports Caesar shift, Atbash, and reversal. | `method` (`caesar`, `atbash`, or `reverse`), `plaintext`, `answer`; `shift` for Caesar |
+| `ordering` | Rearrange a shuffled list into the intended sequence. | `items` in the correct order, `answer: "ordered"` |
+| `matching` | Pair every left-column item with its corresponding right-column item. The right side is shuffled; all pairs must be correct. | `left` and `right` lists of equal length (2–20 each); corresponding entries at the same index are the correct pair; `answer: "paired"` |
+| `image_hotspot` | Click the correct area of the puzzle image. | `image`, `regions` (one or more `{x, y, w, h}` rectangles as percentages); optional `tolerance` (0–10% hit margin) |
+| `meta` | Solve the final answer using fragments from previously solved puzzles. | `answer`; its `requires` must include every puzzle that has `gives` |
+
+Every puzzle also needs the common fields shown in the [room authoring
+guide](docs/ROOM_AUTHORING.md), including a prompt, prestory, hints, and
+requirements. `image_hotspot` coordinates are percentages of the image. When
+an uploaded room has missing or invalid hotspot coordinates, the upload form
+shows a visual editor: draw, move, or resize regions, test clicks, then submit
+the room. The selected coordinates are written directly into the uploaded
+room's puzzle data; no YAML editing or copying is needed. The validator warns
+about tiny regions, large hit areas, and low-resolution images.
+
 ## Run tests
 
 ```sh
 python -m pip install -r requirements-dev.txt
 python -m pytest
+node --experimental-default-type=module --test tests/test_hotspot_js.mjs
 ```
 
 ## Run with the apps Docker Compose stack

@@ -3,7 +3,7 @@ meta:
   title: The First Light
   author: Party Games Server
   difficulty: easy
-  est_minutes: 15
+  est_minutes: 20
   team_size: "1-8"
   tags:
     - starter
@@ -13,7 +13,7 @@ settings:
   hint_penalty_sec: 60
   wrong_answer_cooldown_sec: 5
 story:
-  intro: "The old observatory is dark. Three instruments still hold a trace of the last astronomer's work. Read each carefully and combine what you discover to bring the beacon back to life."
+  intro: "The old observatory is dark. Six traces of the last astronomer's work remain among its instruments and charts. Read each carefully and combine what you discover to bring the beacon back to life."
   outro: "The beacon blooms across the night sky. Somewhere in the distance, a second light answers."
 puzzles:
   - id: compass
@@ -80,19 +80,66 @@ puzzles:
       - "The answer is star."
     solve_text: "The scattered star chart pieces form a single constellation."
     gives: star
+  - id: instrument-rack
+    title: The Instrument Rack
+    type: matching
+    prestory: "Four observatory instruments stand ready beneath a dusty star chart."
+    prompt: "Match each instrument to the observation it was designed to make."
+    left:
+      - The telescope
+      - The spectroscope
+      - The radio dish
+      - The clock
+    right:
+      - A star's position in the sky
+      - The colors within starlight
+      - Signals from distant stars
+      - The hour of an observation
+    answer: paired
+    requires: []
+    hints:
+      - "Think about what each instrument measures or receives."
+      - "A spectroscope separates light into colors; a radio dish receives signals."
+      - "Pair telescope-position, spectroscope-colors, dish-signals, and clock-hour."
+    solve_text: "The instruments hum together, tuning the beacon to a distant signal."
+    gives: signal
+  - id: beacon-circuit
+    title: The Beacon Circuit
+    type: pick_all
+    prestory: "A tray of components waits beside the beacon's control panel."
+    prompt: "Select every component needed to send a focused beam of light into the sky."
+    options:
+      - A power source
+      - A lamp
+      - A focusing lens
+      - A wool blanket
+      - An empty inkwell
+    answer:
+      - A power source
+      - A lamp
+      - A focusing lens
+    requires: []
+    hints:
+      - "Choose the parts that make light and shape its path."
+      - "The beacon needs energy, something that shines, and something to focus it."
+      - "Select the power source, lamp, and focusing lens."
+    solve_text: "The circuit closes, and a narrow beam cuts through the darkness."
+    gives: light
   - id: beacon
     title: The Beacon
     type: meta
-    prestory: "The three instruments have opened the beacon's control panel."
-    prompt: "Combine the direction, color, moon phase, and object you discovered."
-    answer: "east green full moon star"
+    prestory: "Your discoveries reveal the beacon's final control sequence."
+    prompt: "Combine the direction, color, moon phase, object, signal, and beam you discovered, in that order."
+    answer: "east green full moon star signal light"
     requires:
       - compass
       - spectrum
       - rhythm
       - night-sky
+      - instrument-rack
+      - beacon-circuit
     hints:
-      - "Use the four clues in the order named in the prompt."
-      - "Your clues are east, green, full moon, and star."
-      - "Enter: east green full moon star."
+      - "Use the six clues in the order named in the prompt."
+      - "Your discoveries are east, green, full moon, star, signal, and light."
+      - "Enter: east green full moon star signal light."
     solve_text: "The observatory beacon has been restored."

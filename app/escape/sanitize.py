@@ -13,7 +13,12 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from yaml.tokens import AliasToken, AnchorToken
 
 from app.config import UploadsConfig
-from app.escape.loader import MAX_ROOM_YAML_BYTES, RoomValidationError, validate_room
+from app.escape.loader import (
+    MAX_PUZZLES,
+    MAX_ROOM_YAML_BYTES,
+    RoomValidationError,
+    validate_room,
+)
 
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_IMAGE_WIDTH = 1920
@@ -25,8 +30,16 @@ ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".mp3", ".yaml", ".md"}
 
 
 class UploadValidationError(ValueError):
-    def __init__(self, errors: list[str]) -> None:
+    def __init__(
+        self,
+        errors: list[str],
+        *,
+        warnings: list[str] | None = None,
+        hotspots: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.errors = errors
+        self.warnings = warnings or []
+        self.hotspots = hotspots or []
         super().__init__("; ".join(errors))
 
 
@@ -167,8 +180,16 @@ def _load_room_yaml(content: bytes) -> Any:
 
 
 def sanitize_room_zip(
-    content: bytes, config: UploadsConfig
-) -> tuple[dict[str, Any], dict[str, tuple[bytes, str]], str | None]:
+    content: bytes,
+    config: UploadsConfig,
+    hotspot_regions: dict[str, Any] | None = None,
+) -> tuple[
+    dict[str, Any],
+    dict[str, tuple[bytes, str]],
+    str | None,
+    list[str],
+    list[dict[str, Any]],
+]:
     max_zip_bytes = config.max_zip_mb * 1024 * 1024
     if len(content) > max_zip_bytes:
         raise UploadValidationError(["The archive exceeds the configured zip size limit."])
@@ -300,10 +321,58 @@ def sanitize_room_zip(
         if yaml_content is None:
             raise UploadValidationError(["The archive must contain room.yaml at its root."])
         data = _load_room_yaml(yaml_content)
+        if hotspot_regions:
+            if len(hotspot_regions) > MAX_PUZZLES:
+                raise UploadValidationError(
+                    [f"At most {MAX_PUZZLES} hotspot puzzles can be edited at once."]
+                )
+            puzzles = data.get("puzzles") if isinstance(data, dict) else None
+            if not isinstance(puzzles, list):
+                raise UploadValidationError(
+                    ["Hotspot regions can only be applied to a room with a puzzle list."]
+                )
+            puzzles_by_id = {
+                puzzle.get("id"): puzzle
+                for puzzle in puzzles
+                if isinstance(puzzle, dict)
+                and isinstance(puzzle.get("id"), str)
+                and puzzle.get("type") == "image_hotspot"
+            }
+            for puzzle_id, edit in hotspot_regions.items():
+                if puzzle_id not in puzzles_by_id:
+                    raise UploadValidationError(
+                        [f"Hotspot edits reference an unknown puzzle: {puzzle_id}."]
+                    )
+                if (
+                    not isinstance(edit, dict)
+                    or not {"regions"} <= set(edit)
+                    or set(edit) - {"regions", "tolerance"}
+                ):
+                    raise UploadValidationError(
+                        [f"Hotspot edits for {puzzle_id} are invalid."]
+                    )
+                puzzles_by_id[puzzle_id]["regions"] = edit["regions"]
+                if "tolerance" in edit:
+                    puzzles_by_id[puzzle_id]["tolerance"] = edit["tolerance"]
+            yaml_content = yaml.safe_dump(
+                data, sort_keys=False, allow_unicode=True
+            ).encode("utf-8")
+        diagnostics: dict[str, Any] = {}
         try:
-            room = validate_room(data, None, set(assets))
+            room = validate_room(
+                data,
+                None,
+                set(assets),
+                asset_data={
+                    path: asset_content
+                    for path, (asset_content, _) in assets.items()
+                },
+                diagnostics=diagnostics,
+            )
         except RoomValidationError as exc:
-            raise UploadValidationError(exc.errors) from exc
+            raise UploadValidationError(
+                exc.errors, warnings=exc.warnings, hotspots=exc.hotspots
+            ) from exc
         assets["room.yaml"] = (yaml_content, "application/yaml")
         total_sanitized += len(yaml_content)
         if total_sanitized > config.max_unzipped_mb * 1024 * 1024:
@@ -314,4 +383,10 @@ def sanitize_room_zip(
             raise UploadValidationError(
                 ["The room id must match the archive's top-level folder."]
             )
-        return room, assets, host_guide
+        return (
+            room,
+            assets,
+            host_guide,
+            diagnostics.get("warnings", []),
+            diagnostics.get("hotspots", []),
+        )

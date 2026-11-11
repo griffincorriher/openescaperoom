@@ -104,6 +104,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
+        # Static files and the index page must always be revalidated. Without an
+        # explicit policy, CDNs such as Cloudflare cache them at the edge and add
+        # a multi-hour browser cache, so browsers keep stale JS modules after a
+        # deploy. "private" keeps shared caches out; "no-cache" makes browsers
+        # revalidate (cheap: ETag/304).
+        response.headers.setdefault("Cache-Control", "private, no-cache")
         return response
 
     @application.get("/", include_in_schema=False)
@@ -311,12 +317,14 @@ async def _process_room_upload(request: Request) -> dict[str, object]:
     if not mime_message.is_multipart():
         raise HTTPException(status_code=400, detail="invalid_multipart")
     archive_bytes: bytes | None = None
+    hotspot_regions: dict[str, object] | None = None
     supplied_key = ""
     key_seen = False
+    hotspot_regions_seen = False
     field_count = 0
     for part in mime_message.iter_parts():
         field_count += 1
-        if field_count > 2:
+        if field_count > 3:
             raise HTTPException(status_code=400, detail="invalid_multipart")
         if part.is_multipart():
             raise HTTPException(status_code=400, detail="invalid_multipart")
@@ -338,6 +346,21 @@ async def _process_room_upload(request: Request) -> dict[str, object]:
                 raise HTTPException(
                     status_code=400, detail="invalid_admin_key"
                 ) from exc
+        elif field_name == "hotspot_regions":
+            if hotspot_regions_seen:
+                raise HTTPException(status_code=400, detail="invalid_hotspot_regions")
+            hotspot_regions_seen = True
+            try:
+                parsed_regions = json.loads(value.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                raise HTTPException(
+                    status_code=400, detail="invalid_hotspot_regions"
+                ) from exc
+            if not isinstance(parsed_regions, dict) or not all(
+                isinstance(puzzle_id, str) for puzzle_id in parsed_regions
+            ):
+                raise HTTPException(status_code=400, detail="invalid_hotspot_regions")
+            hotspot_regions = parsed_regions
         else:
             raise HTTPException(status_code=400, detail="invalid_upload_field")
     if archive_bytes is None:
@@ -350,8 +373,8 @@ async def _process_room_upload(request: Request) -> dict[str, object]:
 
     room_tokens = _request_room_tokens(request)
     try:
-        room, assets, host_guide = await asyncio.to_thread(
-            sanitize_room_zip, archive_bytes, config.uploads
+        room, assets, host_guide, warnings, hotspots = await asyncio.to_thread(
+            sanitize_room_zip, archive_bytes, config.uploads, hotspot_regions
         )
         token = request.app.state.rooms.add_uploaded(
             room,
@@ -365,7 +388,12 @@ async def _process_room_upload(request: Request) -> dict[str, object]:
         )
     except UploadValidationError as exc:
         raise HTTPException(
-            status_code=422, detail={"errors": exc.errors, "warnings": []}
+            status_code=422,
+            detail={
+                "errors": exc.errors,
+                "warnings": exc.warnings,
+                "hotspots": exc.hotspots,
+            },
         ) from exc
     except RoomStoreError as exc:
         raise HTTPException(status_code=409, detail=exc.code) from exc
@@ -375,7 +403,8 @@ async def _process_room_upload(request: Request) -> dict[str, object]:
             room["meta"]["id"], room, uploaded=True
         ),
         "room_token": token,
-        "warnings": [],
+        "warnings": warnings,
+        "hotspots": hotspots,
         "host_guide": host_guide,
     }
 

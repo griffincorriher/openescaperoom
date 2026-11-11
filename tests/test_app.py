@@ -33,6 +33,7 @@ def test_home_serves_static_page_with_security_headers():
     with TestClient(create_app(make_config())) as client:
         response = client.get("/")
         module_response = client.get("/static/puzzles/text.js")
+        lock_module_response = client.get("/static/puzzles/lock.js")
         client_script_response = client.get("/static/client.js")
         style_response = client.get("/static/style.css")
 
@@ -47,16 +48,19 @@ def test_home_serves_static_page_with_security_headers():
     assert 'id="room-archive" class="room-upload-file-input"' in response.text
     assert "M12 5v9m-5 0H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1h-2M8 9l4-5 4 5m1 8h.01" in response.text
     assert 'id="host-guide-preview" hidden' in response.text
+    assert 'id="hotspot-validation" class="hotspot-validation"' in response.text
     assert 'id="room-publish-tools" hidden' in response.text
     assert 'id="publish-room-button"' in response.text
-    assert "static/client.js?v=36" in response.text
-    assert "static/style.css?v=31" in response.text
+    assert "static/client.js?v=43" in response.text
+    assert "static/style.css?v=35" in response.text
     assert 'id="app-toast"' in response.text
     assert 'id="lobby-notice"' not in response.text
     assert "Game created. Choose your name to get started." not in client_script_response.text
     assert 'showToast("Save your player name before creating a team.", "warning")' in client_script_response.text
     assert 'showToast("Join code copied to clipboard.", "success")' in client_script_response.text
     assert "openHostControlsButton.hidden = !canControl;" in client_script_response.text
+    assert 'matching: () => import("./puzzles/matching.js?v=43")' in client_script_response.text
+    assert 'pick_all: () => import("./puzzles/pick_all.js?v=43")' in client_script_response.text
     assert 'browseRoomFileButton.addEventListener("click"' in client_script_response.text
     assert 'roomUploadDropzone.addEventListener("drop"' in client_script_response.text
     assert 'roomUploadDropzone.classList.add("is-dragging")' in client_script_response.text
@@ -64,6 +68,7 @@ def test_home_serves_static_page_with_security_headers():
     assert "static/vendor/flowbite.min.css?v=3.1.2" in response.text
     assert "static/vendor/flowbite.min.js?v=3.1.2" in response.text
     assert "static/vendor/chart.umd.min.js?v=4.5.1" in response.text
+    assert "hotspot-editor.js" in client_script_response.text
     assert 'id="home-hero"' in response.text
     assert 'id="home-grid"' in response.text
     assert 'id="connection-strip" class="connection-strip" hidden' in response.text
@@ -125,6 +130,14 @@ def test_home_serves_static_page_with_security_headers():
     assert "#c4c6d3" not in client_script_response.text
     assert 'showToast("Enter all 5 characters of the game code.", "warning")' in client_script_response.text
     assert module_response.status_code == 200
+    assert lock_module_response.status_code == 200
+    assert 'input.maxLength = 1;' in lock_module_response.text
+    assert 'input.setAttribute("data-focus-input-init", "");' in lock_module_response.text
+    assert 'inputsRow.addEventListener("paste"' in lock_module_response.text
+    assert ".lock-code-inputs {\n  flex-wrap: wrap;" in style_response.text
+    assert ".lock-code-input {\n  width: 2.9rem;" in style_response.text
+    assert ".join-code-pin {\n  display: grid;\n  width: 100%;" in style_response.text
+    assert "#join-game-form > button {\n  width: 100%;\n  min-width: 0;\n  margin: 0;" in style_response.text
     flowbite_css_response = client.get("/static/vendor/flowbite.min.css")
     flowbite_response = client.get("/static/vendor/flowbite.min.js")
     chart_response = client.get("/static/vendor/chart.umd.min.js")

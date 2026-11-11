@@ -1,3 +1,8 @@
+import {
+  getHotspotEdits,
+  renderHotspotEditors,
+} from "./puzzles/hotspot-editor.js?v=43";
+
 const statusElement = document.querySelector("#connection-status");
 const gameStatusElement = document.querySelector("#game-status");
 const createForm = document.querySelector("#create-game-form");
@@ -17,6 +22,7 @@ const roomPublishTools = document.querySelector("#room-publish-tools");
 const publishRoomButton = document.querySelector("#publish-room-button");
 const hostGuidePreview = document.querySelector("#host-guide-preview");
 const hostGuideText = document.querySelector("#host-guide-text");
+const hotspotValidationPanel = document.querySelector("#hotspot-validation");
 const lobbyView = document.querySelector("#lobby-view");
 const gameView = document.querySelector("#game-view");
 const gameMain = document.querySelector(".game-main");
@@ -115,14 +121,16 @@ let renderedResultsGameId;
 let appToastTimer;
 const codeCopyResetTimers = new WeakMap();
 const puzzleModules = {
-  text: () => import("./puzzles/text.js"),
-  multiple_choice: () => import("./puzzles/multiple_choice.js"),
-  lock: () => import("./puzzles/lock.js"),
-  split_clue: () => import("./puzzles/split_clue.js"),
-  cipher: () => import("./puzzles/cipher.js"),
-  ordering: () => import("./puzzles/ordering.js"),
-  meta: () => import("./puzzles/meta.js"),
-  image_hotspot: () => import("./puzzles/image_hotspot.js"),
+  text: () => import("./puzzles/text.js?v=43"),
+  multiple_choice: () => import("./puzzles/multiple_choice.js?v=43"),
+  lock: () => import("./puzzles/lock.js?v=43"),
+  split_clue: () => import("./puzzles/split_clue.js?v=43"),
+  cipher: () => import("./puzzles/cipher.js?v=43"),
+  ordering: () => import("./puzzles/ordering.js?v=43"),
+  matching: () => import("./puzzles/matching.js?v=43"),
+  pick_all: () => import("./puzzles/pick_all.js?v=43"),
+  meta: () => import("./puzzles/meta.js?v=43"),
+  image_hotspot: () => import("./puzzles/image_hotspot.js?v=43"),
 };
 const pageUrl = new URL(window.location.href);
 let joinOnConnect = pageUrl.searchParams.get("join");
@@ -473,6 +481,7 @@ function renderTeamControls(team, currentPlayer, canHostControl) {
     renameInput.maxLength = 30;
     renameInput.value = team.name;
     renameInput.setAttribute("aria-label", `Rename ${team.name}`);
+    renameInput.dataset.focusKey = `team-rename-${team.team_id}`;
     renameInput.required = true;
     const renameButton = makeElement("button", "Rename", "button button-secondary");
     renameButton.type = "submit";
@@ -502,7 +511,74 @@ function renderTeamControls(team, currentPlayer, canHostControl) {
   return teamCard;
 }
 
+function captureFocusedControl() {
+  const control = document.activeElement;
+  if (
+    !control ||
+    !["INPUT", "SELECT", "TEXTAREA"].includes(control.tagName)
+  ) {
+    return undefined;
+  }
+
+  return {
+    control,
+    focusKey: control.dataset.focusKey,
+    id: control.id,
+    ariaLabel: control.getAttribute("aria-label"),
+    value: control.value,
+    selectionStart: control instanceof HTMLInputElement ||
+        control instanceof HTMLTextAreaElement
+      ? control.selectionStart
+      : null,
+    selectionEnd: control instanceof HTMLInputElement ||
+        control instanceof HTMLTextAreaElement
+      ? control.selectionEnd
+      : null,
+  };
+}
+
+function restoreFocusedControl(state) {
+  if (!state) {
+    return;
+  }
+
+  let control = state.control;
+  if (!control.isConnected) {
+    control = [...document.querySelectorAll("input, select, textarea")].find(
+      (candidate) =>
+        candidate.tagName === state.control.tagName &&
+        (state.focusKey
+          ? candidate.dataset.focusKey === state.focusKey
+          : state.id
+          ? candidate.id === state.id
+          : candidate.getAttribute("aria-label") === state.ariaLabel),
+    );
+    if (!control) {
+      return;
+    }
+
+    if (control instanceof HTMLSelectElement) {
+      if ([...control.options].some((option) => option.value === state.value)) {
+        control.value = state.value;
+      }
+    } else {
+      control.value = state.value;
+    }
+  }
+
+  control.focus({ preventScroll: true });
+  if (
+    state.selectionStart !== null &&
+    state.selectionEnd !== null &&
+    (control instanceof HTMLInputElement ||
+      control instanceof HTMLTextAreaElement)
+  ) {
+    control.setSelectionRange(state.selectionStart, state.selectionEnd);
+  }
+}
+
 function renderLobby(snapshot) {
+  const focusedControl = captureFocusedControl();
   const pendingAction = pendingLobbyAction;
   lobbySnapshot = snapshot;
   updateLobbyVisibility();
@@ -525,9 +601,11 @@ function renderLobby(snapshot) {
   const hasPlayerName = Boolean(
     currentPlayer?.name && currentPlayer.name !== "Choosing a name",
   );
-  nameInput.value = currentPlayer?.name === "Choosing a name"
-    ? ""
-    : currentPlayer?.name || "";
+  if (focusedControl?.control !== nameInput) {
+    nameInput.value = currentPlayer?.name === "Choosing a name"
+      ? ""
+      : currentPlayer?.name || "";
+  }
   nameForm.hidden = false;
   createTeamForm.hidden =
     snapshot.phase !== "lobby" || snapshot.teams_locked || snapshot.is_playtest;
@@ -597,6 +675,7 @@ function renderLobby(snapshot) {
     if (snapshot.is_host) {
       const teamSelect = document.createElement("select");
       teamSelect.setAttribute("aria-label", `Move ${player.name} to a team`);
+      teamSelect.dataset.focusKey = `player-team-${player.player_id}`;
       teamSelect.className = "team-player-select";
       const unassignedOption = makeElement("option", "Unassigned");
       unassignedOption.value = "";
@@ -621,6 +700,7 @@ function renderLobby(snapshot) {
   if (snapshot.phase === "playing") {
     createTeamForm.hidden = true;
   }
+  restoreFocusedControl(focusedControl);
 }
 
 function renderRoomList(rooms, canUpload, canPublish, preferredRoomId = "") {
@@ -748,7 +828,9 @@ function renderPuzzleMap(snapshot) {
     }
     if (snapshot.is_playtest && Object.hasOwn(puzzle, "answer")) {
       const answer = Array.isArray(puzzle.answer)
-        ? puzzle.answer.join(" / ")
+        ? puzzle.answer.map((item) =>
+          Array.isArray(item) ? item.join(" → ") : item
+        ).join(" / ")
         : puzzle.answer && typeof puzzle.answer === "object"
           ? JSON.stringify(puzzle.answer)
           : String(puzzle.answer);
@@ -1126,6 +1208,7 @@ function setPuzzlePaused(paused) {
 }
 
 function renderGame(snapshot) {
+  const focusedControl = captureFocusedControl();
   const previousPhase = gameSnapshot?.phase;
   gameSnapshot = snapshot;
   const hasResults = snapshot.phase === "results" && Boolean(snapshot.results);
@@ -1180,6 +1263,7 @@ function renderGame(snapshot) {
   ) {
     celebrate(true);
   }
+  restoreFocusedControl(focusedControl);
 }
 
 function returnHomeFromResults() {
@@ -1465,10 +1549,19 @@ function connect() {
     }, 30000);
   });
 
-  socket.addEventListener("close", () => {
+  socket.addEventListener("close", (event) => {
     window.clearInterval(heartbeat);
-    statusElement.textContent = "Disconnected; reconnecting…";
     statusElement.parentElement.dataset.status = "disconnected";
+    if (event.code === 4001) {
+      // Another tab or window in this browser took over this player session.
+      // Reconnecting here would kick that tab off and loop forever.
+      statusElement.textContent = "Disconnected: open in another tab";
+      gameStatusElement.textContent =
+        "This game is now open in another tab or window. Close that tab and reload this page to continue here.";
+      setFormsDisabled(true);
+      return;
+    }
+    statusElement.textContent = "Disconnected; reconnecting…";
     window.setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, 10000);
   });
@@ -1505,6 +1598,9 @@ browseRoomFileButton.addEventListener("click", () => {
 });
 
 roomArchiveInput.addEventListener("change", () => {
+  renderHotspotEditors(hotspotValidationPanel, []);
+  uploadRoomForm.querySelector('button[type="submit"]').textContent =
+    "Validate and add room";
   showSelectedRoomFile(roomArchiveInput.files?.[0]);
 });
 
@@ -1532,6 +1628,9 @@ roomUploadDropzone.addEventListener("drop", (event) => {
   if (!file || !showSelectedRoomFile(file)) {
     return;
   }
+  renderHotspotEditors(hotspotValidationPanel, []);
+  uploadRoomForm.querySelector('button[type="submit"]').textContent =
+    "Validate and add room";
   const files = new DataTransfer();
   files.items.add(file);
   roomArchiveInput.files = files.files;
@@ -1549,6 +1648,9 @@ uploadRoomForm.addEventListener("submit", async (event) => {
   try {
     const formData = new FormData(uploadRoomForm);
     formData.set("admin_key", adminKeyInput.value);
+    if (!hotspotValidationPanel.hidden) {
+      formData.set("hotspot_regions", JSON.stringify(getHotspotEdits(hotspotValidationPanel)));
+    }
     const response = await fetch(new URL("api/uploads", window.location.href), {
       method: "POST",
       headers: {
@@ -1559,6 +1661,10 @@ uploadRoomForm.addEventListener("submit", async (event) => {
     const result = await response.json();
     if (!response.ok) {
       const detail = result.detail;
+      renderHotspotEditors(hotspotValidationPanel, detail?.hotspots || []);
+      if (!hotspotValidationPanel.hidden) {
+        submitButton.textContent = "Submit regions and add room";
+      }
       const message = Array.isArray(detail?.errors)
         ? detail.errors.join(" ")
         : typeof detail === "string"
@@ -1580,9 +1686,11 @@ uploadRoomForm.addEventListener("submit", async (event) => {
       throw new Error("The server returned an invalid upload response.");
     }
     saveRoomToken(result.room.id, result.room_token);
+    renderHotspotEditors(hotspotValidationPanel, []);
     hostGuidePreview.hidden = typeof result.host_guide !== "string";
     hostGuideText.textContent = result.host_guide || "";
     roomArchiveInput.value = "";
+    submitButton.textContent = "Validate and add room";
     showSelectedRoomFile(null);
     await loadRoomList(result.room.id);
     showToast(

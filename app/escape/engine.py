@@ -193,9 +193,15 @@ class EscapeEngine:
                     ),
                     **(
                         {
-                            "answer": puzzle.get(
-                                "answers",
-                                puzzle.get("answer", puzzle.get("regions")),
+                            "answer": (
+                                list(
+                                    zip(puzzle["left"], puzzle["right"], strict=True)
+                                )
+                                if puzzle["type"] == "matching"
+                                else puzzle.get(
+                                    "answers",
+                                    puzzle.get("answer", puzzle.get("regions")),
+                                )
                             )
                         }
                         if game.is_playtest and recipient_id == game.host_player_id
@@ -346,7 +352,18 @@ class EscapeEngine:
             and len(answer) <= 20
             and all(isinstance(item, str) and len(item) <= 200 for item in answer)
         )
-        if not (valid_hotspot_answer or valid_text_answer or valid_order_answer):
+        valid_pick_answer = (
+            puzzle["type"] == "pick_all"
+            and isinstance(answer, list)
+            and len(answer) <= 10
+            and all(isinstance(item, str) and len(item) <= 200 for item in answer)
+        )
+        if not (
+            valid_hotspot_answer
+            or valid_text_answer
+            or valid_order_answer
+            or valid_pick_answer
+        ):
             raise EscapeEngineError("invalid_answer")
 
         correct = check_answer(puzzle, answer)
@@ -785,6 +802,8 @@ class EscapeEngine:
             "length",
             "options",
             "items",
+            "left",
+            "right",
             "method",
             "shift",
             "fragments",
@@ -812,6 +831,11 @@ class EscapeEngine:
         if puzzle["type"] == "ordering":
             public["items"] = list(puzzle["items"])
             SystemRandom().shuffle(public["items"])
+        if puzzle["type"] == "matching":
+            public["left"] = list(puzzle["left"])
+            public["right"] = list(puzzle["right"])
+            while public["right"] == puzzle["right"]:
+                SystemRandom().shuffle(public["right"])
         return public
 
     @staticmethod

@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import base64
+import io
+import logging
+import math
 import re
 import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
+from PIL import Image, UnidentifiedImageError
 from yaml.tokens import AliasToken, AnchorToken
 
 MAX_ROOM_YAML_BYTES = 256 * 1024
 MAX_PUZZLES = 100
+HOTSPOT_MIN_TAP_PERCENT = 2
+HOTSPOT_MAX_COVERAGE_PERCENT = 25
+HOTSPOT_LOW_RESOLUTION_PIXELS = 400
+MAX_HOTSPOT_IMAGE_PIXELS = 40_000_000
+MAX_HOTSPOT_PREVIEW_BYTES = 8 * 1024 * 1024
+logger = logging.getLogger(__name__)
 ROOM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 PUZZLE_ID_PATTERN = ROOM_ID_PATTERN
 TEAM_SIZE_PATTERN = re.compile(r"^(\d+)(?:-(\d+))?$")
@@ -21,6 +32,8 @@ PUZZLE_TYPES = {
     "split_clue",
     "cipher",
     "ordering",
+    "matching",
+    "pick_all",
     "meta",
     "image_hotspot",
 }
@@ -61,14 +74,24 @@ PUZZLE_TYPE_FIELDS = {
     "split_clue": {"fragments", "answer"},
     "cipher": {"method", "shift", "plaintext", "answer"},
     "ordering": {"items", "answer"},
+    "matching": {"left", "right", "answer"},
+    "pick_all": {"options", "answer"},
     "meta": {"answer"},
-    "image_hotspot": {"regions"},
+    "image_hotspot": {"regions", "tolerance"},
 }
 
 
 class RoomValidationError(ValueError):
-    def __init__(self, errors: list[str]) -> None:
+    def __init__(
+        self,
+        errors: list[str],
+        *,
+        warnings: list[str] | None = None,
+        hotspots: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.errors = errors
+        self.warnings = warnings or []
+        self.hotspots = hotspots or []
         super().__init__("; ".join(errors))
 
 
@@ -79,6 +102,226 @@ def _is_text(value: Any, *, minimum: int = 1, maximum: int = 4096) -> bool:
 def _normalized_text(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).casefold()
     return "".join(character for character in normalized if character.isalnum())
+
+
+def _finite_number(value: Any) -> bool:
+    return type(value) is int or (type(value) is float and math.isfinite(value))
+
+
+def _preview_regions(regions: Any) -> list[dict[str, float]]:
+    if not isinstance(regions, list):
+        return []
+    preview: list[dict[str, float]] = []
+    for region in regions:
+        if not isinstance(region, dict):
+            continue
+        preview.append(
+            {
+                key: float(max(-100, min(100, region[key])))
+                if key in region and _finite_number(region[key])
+                else 0.0
+                for key in ("x", "y", "w", "h")
+            }
+        )
+    return preview
+
+
+def _hotspot_union_area(regions: list[dict[str, float]], tolerance: float) -> float:
+    rectangles = [
+        (
+            max(0.0, region["x"] - tolerance),
+            min(100.0, region["x"] + region["w"] + tolerance),
+            max(0.0, region["y"] - tolerance),
+            min(100.0, region["y"] + region["h"] + tolerance),
+        )
+        for region in regions
+    ]
+    x_edges = sorted({edge for left, right, _, _ in rectangles for edge in (left, right)})
+    area = 0.0
+    for left, right in zip(x_edges, x_edges[1:]):
+        if right <= left:
+            continue
+        intervals = sorted(
+            (top, bottom)
+            for rect_left, rect_right, top, bottom in rectangles
+            if rect_left < right and rect_right > left
+        )
+        covered_y = 0.0
+        if intervals:
+            start, end = intervals[0]
+            for top, bottom in intervals[1:]:
+                if top > end:
+                    covered_y += end - start
+                    start, end = top, bottom
+                else:
+                    end = max(end, bottom)
+            covered_y += end - start
+        area += (right - left) * covered_y
+    return area / 100.0
+
+
+def _hotspot_image_details(
+    image_path: str,
+    *,
+    room_dir: Path | None,
+    available_assets: set[str] | None,
+    asset_data: dict[str, bytes] | None,
+    label: str,
+    errors: list[str],
+    warnings: list[str],
+) -> tuple[int, int, bytes | None]:
+    if not isinstance(image_path, str) or not image_path.strip():
+        errors.append(f"{label}.image is required for image_hotspot.")
+        return 0, 0, None
+    if "\x00" in image_path or "\\" in image_path:
+        errors.append(f"{label}.image must be inside the room folder.")
+        return 0, 0, None
+    path = PurePosixPath(image_path)
+    if path.is_absolute() or any(part in {"..", "", "."} for part in path.parts):
+        errors.append(f"{label}.image must be inside the room folder.")
+        return 0, 0, None
+    if available_assets is not None:
+        if image_path not in available_assets:
+            errors.append(f"{label}.image file not found: {image_path}")
+            return 0, 0, None
+        image_bytes = (asset_data or {}).get(image_path)
+        if image_bytes is None:
+            warnings.append(
+                f"{label}.image could not be inspected because file content is unavailable."
+            )
+            return 0, 0, None
+        source: str | io.BytesIO = io.BytesIO(image_bytes)
+    elif room_dir is not None:
+        resolved = (room_dir / Path(*path.parts)).resolve()
+        try:
+            resolved.relative_to(room_dir.resolve())
+        except ValueError:
+            errors.append(f"{label}.image must be inside the room folder.")
+            return 0, 0, None
+        if not resolved.is_file():
+            errors.append(f"{label}.image file not found: {image_path}")
+            return 0, 0, None
+        image_bytes = None
+        source = str(resolved)
+    else:
+        warnings.append(
+            f"{label}.image could not be checked because room files are unavailable."
+        )
+        return 0, 0, None
+
+    allowed_formats = {
+        ".png": "PNG",
+        ".jpg": "JPEG",
+        ".jpeg": "JPEG",
+        ".webp": "WEBP",
+    }
+    expected_format = allowed_formats.get(path.suffix.lower())
+    if expected_format is None:
+        errors.append(f"{label}.image must reference a PNG, JPG, or WEBP image.")
+        return 0, 0, image_bytes
+
+    try:
+        with Image.open(source) as image:
+            if image.format != expected_format:
+                raise UnidentifiedImageError("Image format does not match extension.")
+            width, height = image.size
+            if width * height > MAX_HOTSPOT_IMAGE_PIXELS:
+                errors.append(f"{label}.image exceeds the image pixel limit.")
+                return width, height, image_bytes
+            image.load()
+    except (
+        OSError,
+        ValueError,
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+    ):
+        errors.append(f"{label}.image could not be read as an image: {image_path}")
+        return 0, 0, image_bytes
+
+    if min(width, height) < HOTSPOT_LOW_RESOLUTION_PIXELS:
+        warnings.append(
+            f"{label}.image is only {min(width, height)}px on its shorter side "
+            "and may look blurry."
+        )
+    return width, height, image_bytes
+
+
+def _validate_hotspot_regions(
+    regions: Any,
+    tolerance: float,
+    *,
+    label: str,
+    errors: list[str],
+    warnings: list[str],
+) -> list[dict[str, float]]:
+    if not isinstance(regions, list) or not regions:
+        errors.append(f"{label}.regions must contain at least one region.")
+        return []
+    if len(regions) > 50:
+        errors.append(f"{label}.regions must contain no more than 50 regions.")
+        return []
+
+    valid_regions: list[dict[str, float]] = []
+    for index, region in enumerate(regions):
+        region_label = f"{label}.regions[{index}]"
+        if not isinstance(region, dict):
+            errors.append(f"{region_label} must be a mapping.")
+            continue
+        if set(region) != {"x", "y", "w", "h"}:
+            errors.append(f"{region_label} must contain only x, y, w, and h.")
+            continue
+        valid = True
+        for key in ("x", "y", "w", "h"):
+            value = region[key]
+            if not _finite_number(value):
+                errors.append(f"{region_label}.{key} must be a number.")
+                valid = False
+            elif key in {"x", "y"} and not 0 <= value <= 100:
+                errors.append(f"{region_label}.{key} must be between 0 and 100.")
+                valid = False
+            elif key in {"w", "h"} and value <= 0:
+                errors.append(f"{region_label}.{key} must be greater than 0.")
+                valid = False
+        if not valid:
+            continue
+        if region["x"] + region["w"] > 100:
+            errors.append(
+                f"{region_label} extends past the right edge "
+                f"(x + w = {region['x'] + region['w']:g})."
+            )
+            continue
+        if region["y"] + region["h"] > 100:
+            errors.append(
+                f"{region_label} extends past the bottom edge "
+                f"(y + h = {region['y'] + region['h']:g})."
+            )
+            continue
+
+        normalized_region = {
+            key: float(region[key]) for key in ("x", "y", "w", "h")
+        }
+        valid_regions.append(normalized_region)
+        padded_width = min(100.0, normalized_region["x"] + normalized_region["w"] + tolerance) - max(
+            0.0, normalized_region["x"] - tolerance
+        )
+        padded_height = min(100.0, normalized_region["y"] + normalized_region["h"] + tolerance) - max(
+            0.0, normalized_region["y"] - tolerance
+        )
+        if min(padded_width, padded_height) < HOTSPOT_MIN_TAP_PERCENT:
+            warnings.append(
+                f"{region_label} is very small "
+                f"(w {padded_width:g}%, h {padded_height:g}%) and may be hard "
+                "to tap on a phone."
+            )
+
+    if valid_regions:
+        coverage = _hotspot_union_area(valid_regions, tolerance)
+        if coverage > HOTSPOT_MAX_COVERAGE_PERCENT:
+            warnings.append(
+                f"{label} regions cover {coverage:.0f}% of the image; "
+                "random clicks may succeed."
+            )
+    return valid_regions
 
 
 def _validate_asset_path(
@@ -122,8 +365,12 @@ def validate_room(
     data: Any,
     room_dir: Path | None,
     available_assets: set[str] | None = None,
+    *,
+    asset_data: dict[str, bytes] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
+    validation_warnings: list[str] = []
     if not isinstance(data, dict):
         raise RoomValidationError(["room.yaml must contain a mapping."])
     unknown = set(data) - ROOT_FIELDS
@@ -331,33 +578,101 @@ def validate_room(
                 errors.append(f"{label}.items must contain 2-20 unique strings.")
             if puzzle.get("answer") != "ordered":
                 errors.append(f"{label}.answer must be 'ordered'.")
-        elif puzzle_type == "image_hotspot":
-            regions = puzzle.get("regions")
-            if (
-                not isinstance(regions, list)
-                or not regions
-                or len(regions) > 50
-                or not all(
-                    isinstance(region, dict)
-                    and set(region) == {"x", "y", "w", "h"}
-                    and all(
-                        type(region[key]) in {int, float}
-                        and 0 <= region[key] <= 100
-                        for key in ("x", "y", "w", "h")
-                    )
-                    and region["w"] > 0
-                    and region["h"] > 0
-                    and region["x"] + region["w"] <= 100
-                    and region["y"] + region["h"] <= 100
-                    for region in regions
+        elif puzzle_type == "matching":
+            left = puzzle.get("left")
+            right = puzzle.get("right")
+            valid_left = (
+                isinstance(left, list)
+                and 2 <= len(left) <= 20
+                and all(_is_text(item, maximum=200) for item in left)
+                and all(_normalized_text(item) for item in left)
+                and len({_normalized_text(item) for item in left}) == len(left)
+            )
+            valid_right = (
+                isinstance(right, list)
+                and 2 <= len(right) <= 20
+                and all(_is_text(item, maximum=200) for item in right)
+                and all(_normalized_text(item) for item in right)
+                and len({_normalized_text(item) for item in right}) == len(right)
+            )
+            if not valid_left:
+                errors.append(
+                    f"{label}.left must contain 2-20 unique, non-empty strings."
                 )
+            if not valid_right:
+                errors.append(
+                    f"{label}.right must contain 2-20 unique, non-empty strings."
+                )
+            if (
+                isinstance(left, list)
+                and isinstance(right, list)
+                and len(left) != len(right)
+            ):
+                errors.append(f"{label}.left and {label}.right must have the same length.")
+            if puzzle.get("answer") != "paired":
+                errors.append(f"{label}.answer must be 'paired'.")
+        elif puzzle_type == "pick_all":
+            options = puzzle.get("options")
+            answers = puzzle.get("answer")
+            valid_options = (
+                isinstance(options, list)
+                and 3 <= len(options) <= 10
+                and all(_is_text(option, maximum=200) for option in options)
+                and all(_normalized_text(option) for option in options)
+                and len({_normalized_text(option) for option in options})
+                == len(options)
+            )
+            valid_answers = (
+                isinstance(answers, list)
+                and 1 <= len(answers) <= 10
+                and all(_is_text(answer, maximum=200) for answer in answers)
+                and all(_normalized_text(answer) for answer in answers)
+                and len({_normalized_text(answer) for answer in answers})
+                == len(answers)
+            )
+            if not valid_options:
+                errors.append(
+                    f"{label}.options must contain 3-10 unique strings."
+                )
+            if not valid_answers:
+                errors.append(
+                    f"{label}.answer must contain 1-10 unique correct options."
+                )
+            if valid_options and valid_answers:
+                normalized_options = {_normalized_text(option) for option in options}
+                if any(
+                    _normalized_text(answer) not in normalized_options
+                    for answer in answers
+                ):
+                    errors.append(
+                        f"{label}.answer entries must match options."
+                    )
+        elif puzzle_type == "image_hotspot":
+            tolerance = puzzle.get("tolerance", 0)
+            if (
+                not _finite_number(tolerance)
+                or not 0 <= tolerance <= 10
             ):
                 errors.append(
-                    f"{label}.regions must contain 1-50 percentage rectangles "
-                    "with x, y, w, and h within the image."
+                    f"{label}.tolerance must be between 0 and 10."
                 )
-            if not puzzle.get("image"):
-                errors.append(f"{label}.image is required for image_hotspot.")
+                tolerance = 0
+            _validate_hotspot_regions(
+                puzzle.get("regions"),
+                float(tolerance),
+                label=label,
+                errors=errors,
+                warnings=validation_warnings,
+            )
+            _hotspot_image_details(
+                puzzle.get("image"),
+                room_dir=room_dir,
+                available_assets=available_assets,
+                asset_data=asset_data,
+                label=label,
+                errors=errors,
+                warnings=validation_warnings,
+            )
         else:
             if not _is_text(puzzle.get("answer"), maximum=200):
                 errors.append(f"{label}.answer must be 1-200 characters.")
@@ -374,6 +689,8 @@ def validate_room(
             answer_values = (
                 puzzle.get("answers")
                 if puzzle_type == "text"
+                else puzzle.get("answer")
+                if puzzle_type == "pick_all"
                 else [puzzle.get("answer")]
             )
             if isinstance(answer_values, list) and any(
@@ -391,13 +708,14 @@ def validate_room(
         elif len(set(requires)) != len(requires):
             errors.append(f"{label}.requires cannot contain duplicates.")
         for asset_field in ("image",):
-            _validate_asset_path(
-                puzzle.get(asset_field),
-                room_dir,
-                f"{label}.{asset_field}",
-                errors,
-                available_assets,
-            )
+            if puzzle_type != "image_hotspot":
+                _validate_asset_path(
+                    puzzle.get(asset_field),
+                    room_dir,
+                    f"{label}.{asset_field}",
+                    errors,
+                    available_assets,
+                )
         if "gives" in puzzle and not _is_text(puzzle["gives"], maximum=100):
             errors.append(f"{label}.gives must be 1-100 characters.")
 
@@ -454,8 +772,68 @@ def validate_room(
         for puzzle_id in by_id:
             visit(puzzle_id)
 
+    hotspots: list[dict[str, Any]] = []
+    preview_bytes = 0
+    preview_data_urls: dict[str, str] = {}
+    for index, puzzle in enumerate(puzzles):
+        if not isinstance(puzzle, dict) or puzzle.get("type") != "image_hotspot":
+            continue
+        label = f"puzzles[{index}]"
+        image_path = puzzle.get("image")
+        image_data_url = None
+        if isinstance(image_path, str) and image_path in (asset_data or {}):
+            image_bytes = asset_data[image_path]
+            if image_path in preview_data_urls:
+                image_data_url = preview_data_urls[image_path]
+            elif preview_bytes + len(image_bytes) <= MAX_HOTSPOT_PREVIEW_BYTES:
+                extension = PurePosixPath(image_path).suffix.lower()
+                media_type = {
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                }.get(extension)
+                if media_type:
+                    image_data_url = (
+                        f"data:{media_type};base64,"
+                        f"{base64.b64encode(image_bytes).decode('ascii')}"
+                    )
+                    preview_data_urls[image_path] = image_data_url
+                    preview_bytes += len(image_bytes)
+        regions = puzzle.get("regions")
+        hotspots.append(
+            {
+                "id": puzzle.get("id")
+                if isinstance(puzzle.get("id"), str)
+                else f"puzzle-{index + 1}",
+                "title": puzzle.get("title")
+                if isinstance(puzzle.get("title"), str)
+                else "",
+                "prompt": puzzle.get("prompt")
+                if isinstance(puzzle.get("prompt"), str)
+                else "",
+                "image": image_path if isinstance(image_path, str) else "",
+                "image_data_url": image_data_url,
+                "regions": _preview_regions(regions),
+                "tolerance": puzzle.get("tolerance", 0)
+                if _finite_number(puzzle.get("tolerance", 0))
+                else 0,
+                "errors": [error for error in errors if error.startswith(label)],
+                "warnings": [
+                    warning
+                    for warning in validation_warnings
+                    if warning.startswith(label)
+                ],
+            }
+        )
+
+    if diagnostics is not None:
+        diagnostics["warnings"] = validation_warnings
+        diagnostics["hotspots"] = hotspots
     if errors:
-        raise RoomValidationError(errors)
+        raise RoomValidationError(
+            errors, warnings=validation_warnings, hotspots=hotspots
+        )
     return {
         "meta": meta,
         "settings": settings,
@@ -479,4 +857,8 @@ def load_room(room_dir: Path) -> dict[str, Any]:
         data = yaml.safe_load(content)
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
         raise RoomValidationError([f"Could not read room.yaml: {exc}"]) from exc
-    return validate_room(data, room_dir)
+    room_warnings: list[str] = []
+    room = validate_room(data, room_dir, diagnostics={"warnings": room_warnings})
+    for warning in room_warnings:
+        logger.warning("Room '%s' validation warning: %s", room_dir.name, warning)
+    return room

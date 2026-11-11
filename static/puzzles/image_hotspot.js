@@ -1,4 +1,4 @@
-import { element } from "./common.js";
+import { element } from "./common.js?v=43";
 
 export function render(root, puzzle, submit) {
   root.append(element("p", puzzle.prompt || ""));
