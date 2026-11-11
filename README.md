@@ -1,5 +1,7 @@
 # Party Games Server
 
+https://escaperoom.griffincorriher.com/
+
 ## Run locally
 
 Install the Python dependencies and start the server:
