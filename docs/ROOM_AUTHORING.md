@@ -8,7 +8,7 @@ Copilot (or any chat AI) writes the room; the author makes the images and zips i
 2. **Paste the prompt into Copilot.** It returns `room.yaml`, an image list (exact filename + image prompt for each), and `HOST_GUIDE.md` with the full solution.
 3. **Generate the images.** Ask for each image on the list, one at a time. Save each with the exact filename from the list.
 4. **Assemble the folder.** `room.yaml` and `HOST_GUIDE.md` at the top level, images in `assets/`.
-5. **Zip and upload** (if uploads are enabled), or commit the folder to `rooms/` in the repo.
+5. **Zip the room folder** and upload it from the home page when uploads are enabled, or commit the folder to `rooms/` in the repo. The download link provides a playable sample ZIP to start from.
 6. **Playtest** solo with answers visible, then mark it ready.
 
 ## Room package spec
@@ -80,7 +80,7 @@ puzzles:
 | `split_clue` | Each player sees a different fragment | `fragments` (list, dealt round-robin to teammates), `answer` |
 | `cipher` | Scrambled text the engine encodes | `method` (caesar, atbash, reverse), `shift`, `plaintext`, `answer` |
 | `ordering` | Items to drag into order | `items` (listed in the correct order; engine shuffles them) |
-| `image_hotspot` | Click the right spot on an image | `regions` (x, y, w, h as % of image; set after the image exists) |
+| `image_hotspot` | Click the right spot on an image | `regions` (list of `{x, y, w, h}` percentage rectangles; set after the image exists) |
 | `meta` | The final puzzle, built from earlier `gives` | `answer`; must require every puzzle that has `gives` |
 
 ### Rules the validator checks
@@ -91,6 +91,27 @@ puzzles:
 - Every image path exists in `assets/`. Images are PNG, JPG, or WEBP, each under 5 MB; the zip is under 50 MB.
 - Every puzzle has a prestory under 50 words that doesn't contain its own answer, and 2–3 hints ordered from vague to nearly the answer.
 - Answers are matched case-insensitively, ignoring spaces and punctuation, so `"Ghost Story"` matches `ghoststory`.
+- Each supported puzzle type has its own browser module in `static/puzzles/` and matching authoritative server checker in `app/escape/checkers.py`. Hotspot coordinates are measured from the displayed image's top-left corner as percentages; hotspot regions and accepted answers are never sent to players.
+
+### Upload safety and limits
+
+Uploads are disabled by default. A server owner must set `uploads.enabled: true`
+in `config.yaml` and restart the server before the upload form, `template.zip`,
+or upload endpoint is available. The configured `uploads.who` policy controls
+whether uploads require the admin key.
+
+The archive must contain `room.yaml` at its root (either directly or inside one
+top-level room folder). Accepted assets are PNG, JPG/JPEG, WEBP, MP3, YAML, and
+Markdown. Images are decoded and re-encoded; SVG, HTML, JavaScript, nested
+archives, symlinks, YAML anchors, and aliases are rejected. Images and MP3 files
+are limited to 5 MB each, `room.yaml` to 256 KB, Markdown to 256 KB, and all
+other limits are controlled by `uploads.*` in the server configuration. Uploads
+remain in memory only and are removed after the configured unused-room TTL,
+when memory pressure requires eviction, or when the server restarts. A private
+upload is only listed to the uploader's browser and requires its room token to
+create a game. Public uploads also remain visible only to the uploader until
+the author reviews and publishes them from the room picker; after publication
+they become available in every room picker.
 
 ## The Copilot prompt
 

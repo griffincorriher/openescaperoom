@@ -1,0 +1,38 @@
+server:
+  port: 8000
+  trusted_proxies: []
+  allowed_origins: []
+
+security:
+  admin_key: ""
+
+games:
+  create: key
+  max_concurrent: 50
+  max_players_per_game: 40
+  max_teams_per_game: 10
+  idle_minutes: 30
+  creates_per_ip_per_hour: 10
+
+rooms:
+  preload_dir: rooms
+
+uploads:
+  enabled: false
+  who: key
+  visibility: private
+  ttl_minutes: 120
+  max_zip_mb: 50
+  max_unzipped_mb: 200
+  max_files: 200
+  max_total_memory_mb: 1024
+  per_ip_per_hour: 5
+
+game:
+  max_team_size: 8
+  skip_penalty_sec: 300
+
+limits:
+  ws_messages_per_sec: 20
+  ws_connections_per_ip: 10
+  join_attempts_per_ip_per_min: 20

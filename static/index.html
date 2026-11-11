@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Party Games Server</title>
+    <link rel="stylesheet" href="static/vendor/flowbite.min.css?v=3.1.2">
+    <link rel="stylesheet" href="static/style.css?v=31">
+    <script defer src="static/vendor/flowbite.min.js?v=3.1.2"></script>
+    <script src="static/vendor/chart.umd.min.js?v=4.5.1"></script>
+    <script type="module" src="static/client.js?v=36"></script>
+  </head>
+  <body>
+    <div id="app-toast" class="app-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+    <main class="mx-auto max-w-screen-xl px-4 py-8 sm:px-6 lg:px-8">
+      <header class="page-header mb-10">
+        <a class="brand-link" href="./" aria-label="Party Games home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+              <path d="m8 12 2.5 2.5L16.5 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span>
+            <span class="brand-title">Party Games</span>
+            <span class="brand-subtitle">A good time, self-hosted</span>
+          </span>
+        </a>
+        <nav class="page-actions" aria-label="Display settings">
+          <button id="theme-toggle" class="button button-quiet" type="button" aria-pressed="false">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M16.4 12.8A7 7 0 0 1 7.2 3.6a7 7 0 1 0 9.2 9.2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            <span>Use dark mode</span>
+          </button>
+          <button id="sound-toggle" class="button button-quiet" type="button" aria-pressed="false">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M9 4 5.5 7H3v6h2.5L9 16V4Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 7a4 4 0 0 1 0 6m2-8a7 7 0 0 1 0 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span>Mute sounds</span>
+          </button>
+        </nav>
+      </header>
+      <section id="home-hero" class="hero-panel mb-8 overflow-hidden rounded-3xl p-6 sm:p-10">
+        <div class="hero-copy">
+          <span class="eyebrow"><span class="eyebrow-dot"></span> Your game night starts here</span>
+          <h1 class="mt-5 max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">Bring your people.<br><span class="hero-highlight">We’ll bring the mystery.</span></h1>
+          <p class="hero-description">Create a room, gather a team, and see if you can beat the clock. No accounts, no fuss—just a game worth talking about.</p>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <span class="hero-orbit hero-orbit-one"></span>
+          <span class="hero-orbit hero-orbit-two"></span>
+          <span class="hero-spark hero-spark-one">✦</span>
+          <span class="hero-spark hero-spark-two">✧</span>
+          <span class="hero-key"><svg viewBox="0 0 48 48" fill="none"><circle cx="17" cy="24" r="9" stroke="currentColor" stroke-width="3"/><path d="M25 24h18m-6 0v6m-6-6v4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span>
+        </div>
+      </section>
+      <div id="home-grid" class="home-grid">
+      <section class="surface-card create-card" aria-labelledby="create-game-heading">
+        <div class="section-icon icon-forest" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14m-7-7h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        <span class="section-kicker">For the host</span>
+        <h2 id="create-game-heading" class="section-heading">Start a new game</h2>
+        <p class="section-description">Pick a room and invite your crew with a quick join code.</p>
+        <form id="create-game-form" method="post" class="form-stack">
+          <div>
+            <label for="room-select">Choose an escape room</label>
+            <select id="room-select" name="room-id" required>
+              <option value="" disabled selected>Loading rooms…</option>
+            </select>
+          </div>
+          <div>
+            <label for="admin-key">Admin key <span class="label-optional">(if required)</span></label>
+            <input id="admin-key" name="admin-key" type="password" autocomplete="off" placeholder="Enter your admin key">
+          </div>
+          <div class="action-stack">
+            <button class="button button-primary" type="submit" disabled>
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 10h13m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Create game
+            </button>
+            <button id="playtest-button" class="button button-secondary" type="button" disabled>
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3.5 12 8l4.5 2-4.5 2-2 4.5L8 12l-4.5-2L8 8l2-4.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+              Playtest solo
+            </button>
+          </div>
+        </form>
+        <section id="room-upload-tools" class="room-upload-tools" hidden aria-labelledby="room-upload-heading">
+          <h3 id="room-upload-heading">Add a room</h3>
+          <a id="download-room-template" href="template.zip">Download a sample room ZIP</a>
+          <form id="upload-room-form" class="form-stack">
+            <div>
+              <div id="room-upload-dropzone" class="room-upload-dropzone">
+                <div class="room-upload-dropzone-content">
+                  <svg class="room-upload-dropzone-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                    <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v9m-5 0H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1h-2M8 9l4-5 4 5m1 8h.01"/>
+                  </svg>
+                  <p class="room-upload-dropzone-instruction">Click the button below to upload</p>
+                  <p id="room-upload-file-name" class="room-upload-file-name">ZIP only · maximum 50 MB</p>
+                  <button id="browse-room-file" class="button button-secondary room-upload-browse-button" type="button">
+                    <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-width="2" d="m21 21-3.5-3.5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"/>
+                    </svg>
+                    Browse file
+                  </button>
+                </div>
+              </div>
+              <input id="room-archive" class="room-upload-file-input" name="archive" type="file" accept=".zip,application/zip" aria-describedby="room-upload-file-name" required>
+            </div>
+            <button class="button button-secondary" type="submit">Validate and add room</button>
+          </form>
+          <div id="room-publish-tools" hidden>
+            <p>This public room is visible only to you until you publish it.</p>
+            <button id="publish-room-button" class="button button-secondary" type="button">
+              Publish selected room
+            </button>
+          </div>
+          <details id="host-guide-preview" hidden>
+            <summary>Host guide (plain text)</summary>
+            <pre id="host-guide-text"></pre>
+          </details>
+        </section>
+      </section>
+      <section class="surface-card join-card" aria-labelledby="join-game-heading">
+        <div class="section-icon icon-mint" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M15 20v-1.6a3.4 3.4 0 0 0-3.4-3.4H6.4A3.4 3.4 0 0 0 3 18.4V20m6.5-8a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm8-7.5a4 4 0 0 1 0 7.7m3.5 7.8v-1.6a3.4 3.4 0 0 0-2.6-3.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+        <span class="section-kicker">Joining friends?</span>
+        <h2 id="join-game-heading" class="section-heading">Enter the game</h2>
+        <p class="section-description">Got a code from your host? You’re only a few taps from the lobby.</p>
+        <form id="join-game-form" class="form-stack">
+          <div>
+            <label id="join-code-label">5-character game code</label>
+            <div class="join-code-pin" role="group" aria-labelledby="join-code-label">
+              <input id="join-code-digit-1" class="join-code-digit" data-join-code-digit type="text" maxlength="5" autocomplete="one-time-code" autocapitalize="characters" inputmode="text" aria-label="Game code character 1 of 5">
+              <input class="join-code-digit" data-join-code-digit type="text" maxlength="1" autocapitalize="characters" inputmode="text" aria-label="Game code character 2 of 5">
+              <input class="join-code-digit" data-join-code-digit type="text" maxlength="1" autocapitalize="characters" inputmode="text" aria-label="Game code character 3 of 5">
+              <input class="join-code-digit" data-join-code-digit type="text" maxlength="1" autocapitalize="characters" inputmode="text" aria-label="Game code character 4 of 5">
+              <input class="join-code-digit" data-join-code-digit type="text" maxlength="1" autocapitalize="characters" inputmode="text" aria-label="Game code character 5 of 5">
+            </div>
+            <input id="join-code" name="join-code" type="hidden">
+          </div>
+          <button class="button button-dark" type="submit">
+            Join game
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 10h13m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </form>
+        <div class="join-note"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.4"/><path d="M10 9v4m0-6h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>No account needed. Your name is all you need.</span></div>
+      </section>
+      </div>
+      <p id="game-status" class="status-message" role="status" aria-live="polite"></p>
+      <section id="lobby-view" class="surface-card mt-8" aria-live="polite" hidden>
+        <header class="lobby-header view-header">
+          <div>
+            <span class="section-kicker">Get your team together</span>
+            <h2 class="section-heading">Game lobby</h2>
+            <button id="copy-lobby-code" class="code-pill code-copy" type="button">
+              <span>Join code</span>
+              <strong id="lobby-code"></strong>
+              <svg class="code-copy-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="7" y="6" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M13 6V4.5A1.5 1.5 0 0 0 11.5 3h-7A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15H7" stroke="currentColor" stroke-width="1.5"/></svg>
+              <span class="code-copy-label" aria-live="polite">Copy</span>
+            </button>
+          </div>
+          <div class="lobby-phase-group">
+            <div id="connection-strip" class="connection-strip" hidden>
+              <span class="connection-indicator" aria-hidden="true"></span>
+              <span id="connection-status" class="connection-badge" role="status">Connecting…</span>
+            </div>
+            <p id="lobby-phase" class="phase-badge"></p>
+          </div>
+        </header>
+        <div class="lobby-columns">
+          <section aria-labelledby="setup-heading">
+            <h3 id="setup-heading">Your setup</h3>
+            <form id="player-name-form" class="inline-form">
+              <label for="player-name">Your name (up to 24 characters)</label>
+              <input id="player-name" name="player-name" maxlength="24" autocomplete="nickname" required>
+              <button class="button button-primary" type="submit">Save name</button>
+            </form>
+            <h4 id="teams-heading">Teams</h4>
+            <p id="host-drag-help" hidden>Drag a player onto a team to move them.</p>
+            <div id="team-list"></div>
+            <form id="create-team-form">
+              <label for="team-name">New team name (up to 30 characters)</label>
+              <input id="team-name" name="team-name" maxlength="30" required>
+              <p id="team-name-help" class="form-help">Save your player name before creating a team.</p>
+              <button id="create-team-button" type="submit" disabled>Create team</button>
+            </form>
+          </section>
+          <section aria-labelledby="players-heading">
+            <h3 id="players-heading">Players</h3>
+            <ul id="player-list"></ul>
+          </section>
+        </div>
+        <section id="host-controls" aria-labelledby="host-heading" hidden>
+          <h3 id="host-heading">Host controls</h3>
+          <button id="lock-teams-button" type="button"></button>
+          <button id="auto-balance-button" type="button">Auto-balance</button>
+          <button id="start-game-button" type="button">Start game</button>
+        </section>
+      </section>
+      <section id="game-view" class="game-shell mt-8" aria-live="polite" hidden>
+        <div class="game-layout">
+          <aside class="game-sidebar">
+            <header class="game-header view-header game-title-card">
+              <span class="section-kicker">Escape room in progress</span>
+              <h2 id="room-title" class="section-heading"></h2>
+              <button id="copy-game-code" class="code-pill code-copy" type="button">
+                <span>Join code</span>
+                <strong id="game-code"></strong>
+                <svg class="code-copy-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="7" y="6" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M13 6V4.5A1.5 1.5 0 0 0 11.5 3h-7A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15H7" stroke="currentColor" stroke-width="1.5"/></svg>
+                <span class="code-copy-label" aria-live="polite">Copy</span>
+              </button>
+              <div class="timer-card">
+                <span>Time remaining</span>
+                <strong id="game-clock">--:--</strong>
+              </div>
+              <p id="team-progress" class="section-description"></p>
+            </header>
+            <section aria-labelledby="puzzle-map-heading">
+              <h3 id="puzzle-map-heading">Puzzle map</h3>
+              <div id="puzzle-map" class="puzzle-map"></div>
+            </section>
+          </aside>
+          <div class="game-main">
+            <section class="game-activity" aria-labelledby="activity-heading">
+              <header class="game-section-header">
+                <h3 id="activity-heading">Team activity</h3>
+                <button id="open-host-controls" class="button button-secondary" type="button" data-modal-target="host-controls-modal" data-modal-toggle="host-controls-modal" hidden>Host controls</button>
+              </header>
+              <ul id="team-activity" aria-label="Recent team activity" tabindex="0"></ul>
+            </section>
+            <img id="room-intro-image" class="puzzle-image" alt="" hidden>
+            <p id="room-intro"></p>
+            <p id="game-toast" role="status" aria-live="polite"></p>
+            <section id="paused-overlay" class="paused-overlay" role="status" hidden>
+              <h3>Game paused</h3>
+              <p>The shared timer and puzzle input are paused.</p>
+            </section>
+            <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+            <section id="puzzle-panel" aria-live="polite" hidden>
+              <h3 id="puzzle-title"></h3>
+              <p id="puzzle-prestory"></p>
+              <button id="begin-puzzle-button" type="button">Begin puzzle</button>
+              <div id="puzzle-challenge" hidden>
+                <div id="puzzle-module-root"></div>
+                <p id="puzzle-hint" role="status" aria-live="polite"></p>
+                <button id="hint-button" type="button">Request hint</button>
+              </div>
+              <p id="puzzle-solve-text"></p>
+              <button id="close-puzzle-button" type="button">Close puzzle</button>
+            </section>
+          </div>
+        </div>
+      </section>
+      <div id="host-controls-modal" tabindex="-1" aria-hidden="true" class="modal-backdrop host-controls-modal hidden">
+        <div class="modal-dialog host-controls-dialog">
+          <section id="game-host-controls" aria-labelledby="game-host-heading" hidden>
+            <header class="host-controls-header">
+              <h2 id="game-host-heading" class="section-heading">Host controls</h2>
+              <button id="close-host-controls" class="button button-quiet" type="button" data-modal-hide="host-controls-modal">Close</button>
+            </header>
+            <div class="host-control-grid">
+              <section aria-labelledby="host-game-actions-heading">
+                <h4 id="host-game-actions-heading">Game controls</h4>
+                <div class="host-game-actions">
+                  <button id="pause-game-button" class="button button-secondary" type="button">Pause game</button>
+                  <button id="end-game-button" class="button button-danger" type="button" data-modal-target="end-game-modal" data-modal-toggle="end-game-modal">End game early</button>
+                </div>
+              </section>
+              <form id="add-time-form">
+                <label for="add-time-minutes">Add minutes</label>
+                <input id="add-time-minutes" type="number" min="1" max="120" value="5" required>
+                <button type="submit">Add time</button>
+              </form>
+              <form id="skip-puzzle-form">
+                <label for="skip-team">Skip for team</label>
+                <select id="skip-team" required></select>
+                <label for="skip-puzzle">Puzzle</label>
+                <select id="skip-puzzle" required></select>
+                <button type="submit">Skip puzzle</button>
+              </form>
+              <form id="host-message-form">
+                <label for="host-message-team">Message recipients</label>
+                <select id="host-message-team" required></select>
+                <label for="host-message-text">Message (up to 200 characters)</label>
+                <input id="host-message-text" maxlength="200" required>
+                <button type="submit">Send message</button>
+              </form>
+              <section aria-labelledby="kick-player-heading">
+                <h4 id="kick-player-heading">Remove player</h4>
+                <ul id="kick-player-list"></ul>
+              </section>
+              <section aria-labelledby="host-progress-heading">
+                <h4 id="host-progress-heading">Live team progress</h4>
+                <ol id="host-team-progress"></ol>
+              </section>
+            </div>
+          </section>
+        </div>
+      </div>
+      <section id="results-view" class="results-shell mt-8" aria-live="polite" hidden>
+        <header class="results-header">
+          <div>
+            <span class="section-kicker">Escape room complete</span>
+            <h2 id="results-room-title" class="section-heading"></h2>
+            <button id="copy-results-game-code" class="code-pill code-copy" type="button">
+              <span>Join code</span>
+              <strong id="results-game-code"></strong>
+              <svg class="code-copy-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="7" y="6" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M13 6V4.5A1.5 1.5 0 0 0 11.5 3h-7A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15H7" stroke="currentColor" stroke-width="1.5"/></svg>
+              <span class="code-copy-label" aria-live="polite">Copy</span>
+            </button>
+          </div>
+          <button id="results-home-button" class="button button-primary" type="button">Return home</button>
+        </header>
+        <section id="results-panel" aria-labelledby="results-heading" hidden>
+          <h3 id="results-heading">Results</h3>
+          <img id="room-outro-image" class="puzzle-image" alt="" hidden>
+          <p id="room-outro"></p>
+          <div id="leaderboard-results">
+            <ol id="standings-list"></ol>
+            <h4>Race chart</h4>
+            <div id="race-chart" class="race-chart-container">
+              <canvas id="race-chart-canvas" role="img" aria-label="Team puzzle solves over time"></canvas>
+            </div>
+            <h4>Awards</h4>
+            <ul id="awards-list"></ul>
+          </div>
+          <h4>Player stats</h4>
+          <ul id="player-stats-list"></ul>
+        </section>
+      </section>
+      <div id="end-game-modal" tabindex="-1" aria-hidden="true" class="modal-backdrop hidden">
+        <div class="modal-dialog">
+          <div class="modal-card rounded-2xl p-6 shadow-xl">
+            <div class="section-icon icon-coral mb-4" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5m0 3h.01M10.3 3.8 2.8 17a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3l-7.5-13.2a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <h2 class="section-heading">End this game?</h2>
+            <p class="section-description">Everyone will leave the puzzle and see the results immediately. This can’t be undone.</p>
+            <div class="modal-actions">
+              <button id="confirm-end-game-button" class="button button-danger" type="button" data-modal-hide="end-game-modal">End game</button>
+              <button class="button button-quiet" type="button" data-modal-hide="end-game-modal">Keep playing</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
